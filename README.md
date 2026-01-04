@@ -235,14 +235,125 @@ EventBridge -> AgentCore Runtime (Agent) -> AgentCore Gateway (Tools) -> Lark No
 
 ---
 
+### Option 4: Claude Agent SDK
+
+```
+EventBridge -> Lambda (Container) -> Claude Agent SDK -> Bedrock API -> Lark Notification
+                                          |
+                                          v
+                                    DynamoDB (Tag Rules)
+```
+
+**How It Works:**
+- **Claude Agent SDK** (Python/TypeScript) provides Claude Code capabilities as a library
+- Built-in tools: Read, Write, Edit, Bash, Glob, Grep, WebSearch, WebFetch
+- Supports Amazon Bedrock via `CLAUDE_CODE_USE_BEDROCK=1` environment variable
+- Requires Claude Code CLI runtime installed in container
+
+**Key Features:**
+- **Built-in Tools**: File operations, bash commands, web search out of the box
+- **Hooks**: Custom callbacks at agent lifecycle points
+- **Subagents**: Spawn specialized agents for subtasks
+- **MCP Support**: Model Context Protocol for external integrations
+- **Sessions**: Maintain context across multiple exchanges
+
+**Pricing (Estimated ~1000 events/day):**
+| Component | Pricing | Monthly Cost |
+|-----------|---------|--------------|
+| Lambda | $0.0000166667/GB-sec | ~$2-4 (1GB+, container with Claude Code runtime) |
+| Bedrock Claude Sonnet | $3/1M input, $15/1M output tokens | ~$2-5 |
+| DynamoDB On-Demand | $1.25/million reads | ~$0.04 |
+| ECR Storage | $0.10/GB/month | ~$0.10 (larger image) |
+| **Total** | | **~$4-10/month** |
+
+**Pros:**
+- Rich built-in tools (file, bash, web operations)
+- Hooks for custom behavior
+- Subagent support for complex workflows
+- Native MCP integration
+
+**Cons:**
+- **Requires Claude Code runtime** (large container ~1GB+)
+- Claude models only (no other LLM providers)
+- Higher Lambda memory requirements
+- Designed for coding tasks, not event-driven processing
+- **Not ideal for Lambda** - better suited for long-running processes
+
+**When to Use:**
+- Complex coding/development automation tasks
+- When you need Claude Code's full capabilities programmatically
+- CI/CD pipelines and development workflows
+- NOT recommended for simple event-driven compliance checking
+
+---
+
+### Option 5: Strands Agents SDK (AWS Open Source)
+
+```
+EventBridge -> Lambda (Python) -> Strands Agent -> Bedrock API -> Lark Notification
+                                       |
+                                       v
+                                 DynamoDB (Tag Rules)
+```
+
+**How It Works:**
+- **Strands Agents SDK** is AWS's open-source framework for building AI agents
+- Model-driven approach: LLM handles reasoning and planning
+- Works with any LLM provider (Bedrock, OpenAI, Ollama, etc.)
+- Native integration with Amazon Bedrock AgentCore
+
+**Key Features:**
+- **Model Agnostic**: Works with any LLM provider
+- **Lightweight**: Minimal boilerplate, model handles orchestration
+- **MCP Support**: Connect to external tools via Model Context Protocol
+- **Multi-Agent**: Swarm, peer-to-peer, and supervisor patterns
+- **Observability**: Built-in OpenTelemetry integration
+- **A2A Protocol**: Agent-to-Agent communication support
+
+**Pricing (Estimated ~1000 events/day):**
+| Component | Pricing | Monthly Cost |
+|-----------|---------|--------------|
+| Lambda | $0.0000166667/GB-sec | ~$0.50-1 (256-512MB) |
+| Bedrock Claude Sonnet | $3/1M input, $15/1M output tokens | ~$2-5 |
+| DynamoDB On-Demand | $1.25/million reads | ~$0.04 |
+| **Total** | | **~$3-7/month** |
+
+**Installation:**
+```bash
+pip install strands-agents strands-agents-tools
+```
+
+**Pros:**
+- **Native Lambda support** - designed for serverless
+- Model agnostic (not locked to Claude)
+- Lightweight, fast cold starts
+- Native AgentCore integration
+- Open source (Apache 2.0)
+- Built-in observability
+
+**Cons:**
+- Fewer built-in tools (bring your own)
+- Newer framework (less mature)
+- Requires more custom tool implementation
+
+**When to Use:**
+- Serverless AI agents in Lambda
+- Multi-agent systems
+- When you need model flexibility (not just Claude)
+- Production deployments with observability requirements
+
+---
+
 ### Cost Comparison Summary
 
-| Approach | Monthly Cost | Complexity | Agent Capabilities | Best For |
-|----------|--------------|------------|-------------------|----------|
-| **Current: Claude Code** | $3-8 | Medium | Full (tools, memory, reasoning) | Flexible, scales to complex tasks |
-| **Option 1: Direct API** | $3-6 | Low | None (prompt/response only) | Simple, single-purpose checks |
-| **Option 2: Bedrock Agents** | $4-10 | Medium | Managed (action groups) | Multi-tool, conversational |
-| **Option 3: AgentCore** | $6-14 (FREE now) | High | Full + Enterprise | Multi-framework, enterprise |
+| Approach | Monthly Cost | Complexity | Lambda Fit | Best For |
+|----------|--------------|------------|------------|----------|
+| **Current: Claude Code** | $3-8 | Medium | Good | Flexible, scales to complex tasks |
+| **Option 1: Direct API** | $3-6 | Low | Excellent | Simple, single-purpose checks |
+| **Option 2: Bedrock Agents** | $4-10 | Medium | Good | Multi-tool, conversational |
+| **Option 3: AgentCore** | $6-14 (FREE now) | High | Excellent | Multi-framework, enterprise |
+| **Option 4: Claude Agent SDK** | $4-10 | High | Poor | Coding automation, CI/CD |
+| **Option 5: Strands SDK** | $3-7 | Medium | Excellent | Serverless agents, multi-agent |
 
 ### Claude Code vs Direct API: Key Tradeoffs
 
@@ -285,6 +396,17 @@ For the **Tag Compliance Checking Solution**:
 - You need enterprise features (observability, identity federation)
 - You want to experiment during the free preview period (until Sept 2025)
 - You're building multiple collaborating agents
+
+**Avoid Option 4 (Claude Agent SDK)** for this use case:
+- Requires Claude Code runtime (large container, slow cold starts)
+- Designed for coding/development tasks, not event-driven processing
+- Better suited for CI/CD pipelines and development automation
+
+**Consider Option 5 (Strands Agents SDK)** if:
+- You want a lightweight agent framework in Lambda
+- You need model flexibility (not locked to Claude)
+- You're building multi-agent systems
+- You want built-in observability with OpenTelemetry
 
 ## Prerequisites
 
