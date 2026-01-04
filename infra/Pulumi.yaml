@@ -1,0 +1,22 @@
+name: tag-compliance
+runtime: go
+description: AWS Tag Compliance Checking Solution using Strands Agents SDK
+config:
+  aws:region:
+    description: AWS region for deployment
+    default: us-east-1
+  tagCompliance:bedrockModelId:
+    description: Bedrock model ID to use
+    default: amazon.nova-2-lite-v1:0
+  tagCompliance:larkSecretName:
+    description: Secrets Manager secret name for Lark credentials
+    default: tag-compliance/lark-credentials
+  tagCompliance:lambdaArchitecture:
+    description: Lambda architecture (arm64 or x86_64)
+    default: arm64
+  tagCompliance:lambdaMemory:
+    description: Lambda memory in MB
+    default: "512"
+  tagCompliance:lambdaTimeout:
+    description: Lambda timeout in seconds
+    default: "60"

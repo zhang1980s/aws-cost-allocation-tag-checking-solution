@@ -1,6 +1,6 @@
 # AWS Tag Compliance Checking Solution
 
-Automated tag compliance solution using Claude Code + Amazon Bedrock as an AI agent. This solution monitors AWS resource creation events in real-time and validates that newly created resources comply with your organization's tagging policies.
+Automated tag compliance solution using **Strands Agents SDK** + Amazon Bedrock as an AI agent. This solution monitors AWS resource creation events in real-time and validates that newly created resources comply with your organization's tagging policies.
 
 ## Overview
 
@@ -16,7 +16,7 @@ This solution provides automated, real-time tag compliance checking with intelli
 
 ```
 ┌──────────────┐    ┌───────────────┐    ┌─────────────────────────┐    ┌──────────────────┐
-│  CloudTrail  │───>│  EventBridge  │───>│  Lambda (Claude Code)   │───>│ Lark Notification│
+│  CloudTrail  │───>│  EventBridge  │───>│  Lambda (Strands Agent) │───>│ Lark Notification│
 │   (Events)   │    │    (Rules)    │    │  + Amazon Bedrock       │    │    (Alerts)      │
 └──────────────┘    └───────────────┘    └───────────┬─────────────┘    └──────────────────┘
                                                      │
@@ -30,9 +30,9 @@ This solution provides automated, real-time tag compliance checking with intelli
 
 1. **Event Capture**: CloudTrail logs all AWS API calls including resource creation events
 2. **Event Filtering**: EventBridge rules filter for specific resource creation events (EC2, S3, RDS, etc.)
-3. **Compliance Check**: Lambda function uses Claude Code with Amazon Bedrock to:
+3. **Compliance Check**: Lambda function uses Strands Agents SDK with Amazon Bedrock to:
    - Fetch tag rules from DynamoDB
-   - Analyze the created resource's tags
+   - Analyze the created resource's tags using AI-powered reasoning
    - Determine compliance status
    - Generate human-readable compliance reports
 4. **Notification**: Non-compliant resources trigger Lark/Feishu notifications with:
@@ -43,52 +43,129 @@ This solution provides automated, real-time tag compliance checking with intelli
 ## Features
 
 - **Real-time Monitoring**: Instant detection of non-compliant resources
-- **AI-Powered Analysis**: Claude models provide intelligent tag validation and recommendations
+- **AI-Powered Analysis**: Amazon Bedrock models provide intelligent tag validation and recommendations
 - **Flexible Rules**: Define custom tag requirements per resource type
 - **Multi-Resource Support**: Monitor EC2, S3, RDS, Lambda, and more
 - **Lark/Feishu Integration**: Native notification support for enterprise communication
+- **Model Flexibility**: Support for multiple Bedrock models (Claude, Nova)
+
+## Recommended Models
+
+This solution supports multiple Amazon Bedrock models. Choose based on your cost and capability requirements.
+
+### Model Comparison
+
+| Model | Model ID | Input/1M tokens | Output/1M tokens | Best For |
+|-------|----------|-----------------|------------------|----------|
+| **Claude Haiku 4.5** | `anthropic.claude-haiku-4-5-20251001-v1:0` | ~$0.80 | ~$4.00 | Cost optimization, fast responses |
+| **Amazon Nova 2 Lite** | `amazon.nova-2-lite-v1:0` | ~$0.04 | ~$0.16 | Lowest cost, extended thinking |
+| Claude Sonnet 4.5 | `anthropic.claude-sonnet-4-5-20250929-v1:0` | ~$3.00 | ~$15.00 | Complex analysis, highest accuracy |
+
+> **Note**: Amazon Nova 2 Pro is in preview. Use Nova 2 Lite for production workloads until Nova 2 Pro is generally available.
+
+### Claude Haiku 4.5 (Recommended for Balance)
+
+```bash
+# Model ID
+anthropic.claude-haiku-4-5-20251001-v1:0
+```
+
+- **Pricing**: ~$0.80/1M input, ~$4.00/1M output tokens
+- **Savings**: ~70% cheaper than Claude Sonnet 4.5
+- **Features**: Vision support, extended thinking, near-frontier performance
+- **Regions**: Global cross-region inference (multiple regions)
+- **Best for**: Tag compliance checks requiring good reasoning at lower cost
+
+### Amazon Nova 2 Lite (Recommended for Cost)
+
+```bash
+# Model ID
+amazon.nova-2-lite-v1:0
+```
+
+- **Pricing**: ~$0.04/1M input, ~$0.16/1M output tokens
+- **Savings**: ~99% cheaper than Claude Sonnet 4.5
+- **Features**: Extended thinking, 1M context window, code interpreter, web grounding
+- **Regions**: Global cross-region inference (multiple regions)
+- **Best for**: Simple tag checks, high-volume workloads, maximum cost savings
+
+### Claude Sonnet 4.5 (Premium)
+
+```bash
+# Model ID
+anthropic.claude-sonnet-4-5-20250929-v1:0
+```
+
+- **Pricing**: ~$3/1M input, ~$15/1M output tokens
+- **Features**: Frontier performance, extended thinking, vision, hybrid reasoning
+- **Regions**: Global cross-region inference (multiple regions)
+- **Best for**: Complex analysis requiring highest accuracy
+
+### Cost Savings Example
+
+For ~1000 tag compliance events/day (~30,000/month):
+
+| Model | Est. Monthly Bedrock Cost | Savings |
+|-------|---------------------------|---------|
+| Claude Sonnet 4.5 | ~$2-5/month | baseline |
+| Claude Haiku 4.5 | ~$0.50-1.50/month | ~70-75% |
+| Amazon Nova 2 Lite | ~$0.05-0.20/month | ~95-99% |
+
+**Recommendation**: Start with **Amazon Nova 2 Lite** for maximum cost savings. Use **Claude Haiku 4.5** if you need better reasoning capabilities.
 
 ## Alternative Architectures
 
-This solution can be implemented using four different AWS approaches. Choose based on your complexity requirements and cost constraints.
+This solution can be implemented using several different approaches. The current implementation uses **Strands Agents SDK**. Other options are listed below for reference.
 
-### Current: Lambda + Claude Code (Interactive Mode)
+### Current: Lambda + Strands Agents SDK (AWS Open Source)
 
 ```
-EventBridge -> Lambda (Container) -> Claude Code (Bedrock) -> Lark Notification
-                                          |
-                                          v
-                                    DynamoDB (Tag Rules)
+EventBridge -> Lambda (Python) -> Strands Agent -> Bedrock API -> Lark Notification
+                                       |
+                                       v
+                                 DynamoDB (Tag Rules)
 ```
 
 **How It Works:**
-- **Claude Code CLI** runs in interactive mode inside Lambda container
-- Configured to use Bedrock for LLM access via IAM role
-- Can leverage Claude Code's built-in capabilities (tools, memory) if needed
-- Requires Docker container deployment
+- **Strands Agents SDK** is AWS's open-source framework for building AI agents
+- Model-driven approach: LLM handles reasoning and planning
+- Works with any LLM provider (Bedrock, OpenAI, Ollama, etc.)
+- Native integration with Amazon Bedrock AgentCore
+- Lightweight deployment with simple Python zip package
+
+**Key Features:**
+- **Model Agnostic**: Works with any LLM provider
+- **Lightweight**: Minimal boilerplate, model handles orchestration
+- **MCP Support**: Connect to external tools via Model Context Protocol
+- **Multi-Agent**: Swarm, peer-to-peer, and supervisor patterns
+- **Observability**: Built-in OpenTelemetry integration
+- **A2A Protocol**: Agent-to-Agent communication support
 
 **Pricing (Estimated ~1000 events/day):**
 | Component | Pricing | Monthly Cost |
 |-----------|---------|--------------|
-| Lambda | $0.0000166667/GB-sec | ~$1-2 (512MB, 30s avg) |
-| Bedrock Claude Sonnet | $3/1M input, $15/1M output tokens | ~$2-5 (same as Direct API for single calls) |
+| Lambda | $0.0000166667/GB-sec | ~$0.50-1 (256-512MB) |
+| Bedrock Claude Sonnet | $3/1M input, $15/1M output tokens | ~$2-5 |
 | DynamoDB On-Demand | $1.25/million reads | ~$0.04 |
-| ECR Storage | $0.10/GB/month | ~$0.05 |
-| **Total** | | **~$3-8/month** |
+| **Total** | | **~$3-7/month** |
 
-**Note**: Bedrock token costs are **the same** as Direct API for single LLM calls.
+**Installation:**
+```bash
+pip install strands-agents strands-agents-tools
+```
 
 **Pros:**
-- Full Claude Code capabilities available (tools, memory, reasoning)
-- Can handle complex multi-step tasks if needed
-- Familiar Claude Code programming model
-- Extensible with custom tools
+- **Native Lambda support** - designed for serverless
+- Model agnostic (not locked to Claude)
+- Lightweight, fast cold starts
+- Native AgentCore integration
+- Open source (Apache 2.0)
+- Built-in observability with OpenTelemetry
 
 **Cons:**
-- **Larger Lambda**: Requires container image, longer cold starts
-- **More resources**: Needs 512MB+ memory
-- **Complex deployment**: Docker build required
-- **May be overkill**: For simple single-call tasks, Direct API is simpler
+- Fewer built-in tools (bring your own)
+- Newer framework (less mature)
+- Requires more custom tool implementation
 
 ---
 
@@ -287,60 +364,126 @@ EventBridge -> Lambda (Container) -> Claude Agent SDK -> Bedrock API -> Lark Not
 
 ---
 
-### Option 5: Strands Agents SDK (AWS Open Source)
+### Option 5: Lambda + Claude Code (Interactive Mode)
 
 ```
-EventBridge -> Lambda (Python) -> Strands Agent -> Bedrock API -> Lark Notification
+EventBridge -> Lambda (Container) -> Claude Code (Bedrock) -> Lark Notification
+                                          |
+                                          v
+                                    DynamoDB (Tag Rules)
+```
+
+**How It Works:**
+- **Claude Code CLI** runs in interactive mode inside Lambda container
+- Configured to use Bedrock for LLM access via IAM role
+- Can leverage Claude Code's built-in capabilities (tools, memory) if needed
+- Requires Docker container deployment
+
+**Pricing (Estimated ~1000 events/day):**
+| Component | Pricing | Monthly Cost |
+|-----------|---------|--------------|
+| Lambda | $0.0000166667/GB-sec | ~$1-2 (512MB, 30s avg) |
+| Bedrock Claude Sonnet | $3/1M input, $15/1M output tokens | ~$2-5 |
+| DynamoDB On-Demand | $1.25/million reads | ~$0.04 |
+| ECR Storage | $0.10/GB/month | ~$0.05 |
+| **Total** | | **~$3-8/month** |
+
+**Pros:**
+- Full Claude Code capabilities available (tools, memory, reasoning)
+- Can handle complex multi-step tasks if needed
+- Familiar Claude Code programming model
+- Extensible with custom tools
+
+**Cons:**
+- **Larger Lambda**: Requires container image, longer cold starts
+- **More resources**: Needs 512MB+ memory
+- **Complex deployment**: Docker build required
+- **May be overkill**: For simple single-call tasks
+
+**When to Use:**
+- Complex multi-step tasks requiring full agent capabilities
+- When you need Claude Code's built-in tools
+- Container deployment is acceptable
+
+---
+
+### Option 6: LangGraph + Amazon Bedrock
+
+```
+EventBridge -> Lambda (Python) -> LangGraph Agent -> Bedrock API -> Lark Notification
                                        |
                                        v
                                  DynamoDB (Tag Rules)
 ```
 
 **How It Works:**
-- **Strands Agents SDK** is AWS's open-source framework for building AI agents
-- Model-driven approach: LLM handles reasoning and planning
-- Works with any LLM provider (Bedrock, OpenAI, Ollama, etc.)
-- Native integration with Amazon Bedrock AgentCore
+- **LangGraph** is an open-source orchestration framework from LangChain for building stateful, multi-agent systems
+- Uses graph-based architecture: **Nodes** (functions), **Edges** (transitions), **State** (shared data)
+- Integrates with Amazon Bedrock via `langchain-aws` package's `ChatBedrock` class
+- Supports checkpointing for durable execution and recovery from failures
 
 **Key Features:**
-- **Model Agnostic**: Works with any LLM provider
-- **Lightweight**: Minimal boilerplate, model handles orchestration
-- **MCP Support**: Connect to external tools via Model Context Protocol
-- **Multi-Agent**: Swarm, peer-to-peer, and supervisor patterns
-- **Observability**: Built-in OpenTelemetry integration
-- **A2A Protocol**: Agent-to-Agent communication support
+- **Graph-Based Orchestration**: Model workflows as directed graphs with conditional routing
+- **State Management**: Shared state across nodes with persistence via checkpoints
+- **Memory**: Both short-term (session) and long-term (cross-session) memory
+- **Human-in-the-Loop**: Built-in support for interrupts and human approval
+- **Durable Execution**: Resume from failures, time-travel debugging
+- **Multi-Agent Patterns**: Supervisor, swarm, and peer-to-peer collaboration
+
+**Bedrock Integration:**
+```python
+from langchain_aws import ChatBedrock
+from langgraph.graph import StateGraph
+
+# Initialize Bedrock-backed LLM
+llm = ChatBedrock(
+    model_id="anthropic.claude-3-sonnet-20240229-v1:0",
+    region_name="us-east-1"
+)
+
+# Build graph with nodes and edges
+graph = StateGraph(AgentState)
+graph.add_node("check_tags", check_tags_node)
+graph.add_node("notify", notify_node)
+graph.add_edge("check_tags", "notify")
+```
 
 **Pricing (Estimated ~1000 events/day):**
 | Component | Pricing | Monthly Cost |
 |-----------|---------|--------------|
-| Lambda | $0.0000166667/GB-sec | ~$0.50-1 (256-512MB) |
+| Lambda | $0.0000166667/GB-sec | ~$1-2 (512MB, 30s avg) |
 | Bedrock Claude Sonnet | $3/1M input, $15/1M output tokens | ~$2-5 |
 | DynamoDB On-Demand | $1.25/million reads | ~$0.04 |
-| **Total** | | **~$3-7/month** |
+| **Total** | | **~$3-8/month** |
 
 **Installation:**
 ```bash
-pip install strands-agents strands-agents-tools
+pip install langgraph langchain-aws langchain-core
 ```
 
 **Pros:**
-- **Native Lambda support** - designed for serverless
-- Model agnostic (not locked to Claude)
-- Lightweight, fast cold starts
-- Native AgentCore integration
-- Open source (Apache 2.0)
-- Built-in observability
+- **Powerful orchestration**: Graph-based workflows with conditional branching
+- **Open source**: Apache 2.0 license, active community (LangChain ecosystem)
+- **Amazon Bedrock integration**: Native support via `langchain-aws`
+- **Durable execution**: Checkpointing for fault tolerance
+- **Multi-agent ready**: Built-in patterns for agent collaboration
+- **LangSmith integration**: Observability and debugging tools
+- **AgentCore compatible**: Can deploy to AgentCore Runtime if needed
 
 **Cons:**
-- Fewer built-in tools (bring your own)
-- Newer framework (less mature)
-- Requires more custom tool implementation
+- **Larger dependency footprint**: LangChain ecosystem adds ~50MB+ to deployment
+- **Cold start impact**: More dependencies = longer cold starts (~3-5s)
+- **Learning curve**: Graph concepts require understanding
+- **Overkill for simple tasks**: Best for complex multi-step workflows
+- **State persistence**: Requires external storage (DynamoDB, Redis) for checkpoints
 
 **When to Use:**
-- Serverless AI agents in Lambda
-- Multi-agent systems
-- When you need model flexibility (not just Claude)
-- Production deployments with observability requirements
+- Complex multi-step compliance workflows
+- Multi-agent systems with supervisor coordination
+- Workflows requiring human approval (human-in-the-loop)
+- Need for durable execution with failure recovery
+- Already using LangChain ecosystem
+- Planning to scale to AgentCore Runtime later
 
 ---
 
@@ -348,44 +491,47 @@ pip install strands-agents strands-agents-tools
 
 | Approach | Monthly Cost | Complexity | Lambda Fit | Best For |
 |----------|--------------|------------|------------|----------|
-| **Current: Claude Code** | $3-8 | Medium | Good | Flexible, scales to complex tasks |
+| **Current: Strands SDK** | $3-7 | Medium | Excellent | Serverless agents, multi-agent |
 | **Option 1: Direct API** | $3-6 | Low | Excellent | Simple, single-purpose checks |
 | **Option 2: Bedrock Agents** | $4-10 | Medium | Good | Multi-tool, conversational |
 | **Option 3: AgentCore** | $6-14 (FREE now) | High | Excellent | Multi-framework, enterprise |
 | **Option 4: Claude Agent SDK** | $4-10 | High | Poor | Coding automation, CI/CD |
-| **Option 5: Strands SDK** | $3-7 | Medium | Excellent | Serverless agents, multi-agent |
+| **Option 5: Claude Code** | $3-8 | Medium | Good | Full agent capabilities |
+| **Option 6: LangGraph** | $3-8 | Medium-High | Good | Graph workflows, multi-agent |
 
-### Claude Code vs Direct API: Key Tradeoffs
+### Strands SDK vs Direct API: Key Tradeoffs
 
-| Factor | Claude Code (Current) | Direct API (Option 1) |
+| Factor | Strands SDK (Current) | Direct API (Option 1) |
 |--------|----------------------|----------------------|
 | **Bedrock Token Cost** | **Same** | **Same** |
-| **Lambda Cost** | Slightly higher (512MB) | Lower (256MB) |
-| **Total Monthly** | ~$3-8 | ~$3-6 |
-| **Cold Start** | Slower (container) | Faster (zip package) |
-| **Deployment** | Docker build required | Simple Python zip |
-| **Capabilities** | Full agent (tools, memory) | Simple prompts only |
-| **Flexibility** | Can scale to complex tasks | Limited to simple tasks |
+| **Lambda Cost** | ~$0.50-1 (256-512MB) | ~$0.50 (256MB) |
+| **Total Monthly** | ~$3-7 | ~$3-6 |
+| **Cold Start** | Fast (zip package) | Fastest (minimal deps) |
+| **Deployment** | Simple Python zip | Simple Python zip |
+| **Capabilities** | Agent framework (tools, multi-agent) | Simple prompts only |
+| **Model Flexibility** | Any LLM provider | Bedrock only |
+| **Observability** | Built-in OpenTelemetry | Manual implementation |
 
-**Key Insight**: Bedrock token costs are **identical** for single LLM calls. The main cost difference (~$1-2/month) comes from Lambda resources (memory, container overhead), not Bedrock usage.
+**Key Insight**: Strands SDK provides agent capabilities with minimal overhead. It's the best balance of features and Lambda fit for this use case.
 
 ### Recommendation
 
-For the **Tag Compliance Checking Solution**:
+For the **Tag Compliance Checking Solution**, we chose **Strands Agents SDK** as the implementation because:
 
-**Both Claude Code and Direct API are similarly priced** (~$1-2/month difference). Choose based on:
+**Why Strands SDK (Current Choice):**
+- **Native Lambda support** - designed for serverless from the ground up
+- **Model agnostic** - not locked to Claude, can switch LLM providers
+- **Lightweight** - fast cold starts, minimal dependencies
+- **Built-in observability** - OpenTelemetry integration out of the box
+- **Open source** - Apache 2.0 license, active AWS support
+- **AgentCore ready** - can scale to AgentCore Runtime if needed
 
-**Keep Claude Code (Current)** if:
-- You want full agent capabilities available for future expansion
-- You may need multi-step reasoning for complex compliance rules
-- You prefer the Claude Code programming model
-- Container deployment is acceptable
+**Alternative Options:**
 
-**Switch to Direct API (Option 1)** if:
-- You prefer simpler deployment (zip vs Docker)
-- You want faster cold starts
+**Consider Option 1 (Direct API)** if:
 - You only need simple prompt/response patterns
-- You want slightly lower Lambda costs
+- You want the absolute minimum dependencies
+- You don't need agent framework features
 
 **Consider Option 2 (Bedrock Agents)** if:
 - You plan to expand with multiple tools
@@ -400,22 +546,24 @@ For the **Tag Compliance Checking Solution**:
 **Avoid Option 4 (Claude Agent SDK)** for this use case:
 - Requires Claude Code runtime (large container, slow cold starts)
 - Designed for coding/development tasks, not event-driven processing
-- Better suited for CI/CD pipelines and development automation
 
-**Consider Option 5 (Strands Agents SDK)** if:
-- You want a lightweight agent framework in Lambda
-- You need model flexibility (not locked to Claude)
-- You're building multi-agent systems
-- You want built-in observability with OpenTelemetry
+**Consider Option 5 (Claude Code)** if:
+- You need Claude Code's full built-in capabilities
+- Container deployment is acceptable
+- You're familiar with Claude Code programming model
+
+**Consider Option 6 (LangGraph)** if:
+- You need complex graph-based workflows with conditional branching
+- You want multi-agent systems with supervisor patterns
+- You're already using LangChain ecosystem
 
 ## Prerequisites
 
 - AWS Account with Bedrock access (Claude models enabled in us-east-1)
 - Lark/Feishu App credentials (Bot with messaging permissions)
-- Go 1.21+ (for Pulumi infrastructure code)
+- Go 1.24+ (for Pulumi infrastructure code)
 - Pulumi CLI v3.x
 - Python 3.12 (for Lambda function code)
-- Docker (optional, for local testing)
 
 ### IAM Permissions Required
 
@@ -443,6 +591,8 @@ require (
 
 ```txt
 # requirements.txt
+strands-agents>=0.1.0
+strands-agents-tools>=0.1.0
 boto3>=1.34.0
 requests>=2.31.0
 ```
@@ -458,9 +608,12 @@ requests>=2.31.0
 │   └── Pulumi.yaml          # Pulumi project configuration
 ├── lambda/                   # Lambda function (Python 3.12)
 │   ├── handler.py           # Main Lambda handler
-│   ├── tag_checker.py       # Tag compliance logic
-│   ├── lark_notifier.py     # Lark notification client
-│   ├── bedrock_client.py    # Amazon Bedrock integration
+│   ├── agent.py             # Strands Agent definition
+│   ├── tools/               # Custom agent tools
+│   │   ├── __init__.py
+│   │   ├── tag_checker.py   # Tag compliance checking tool
+│   │   ├── dynamodb_rules.py # DynamoDB rules fetcher tool
+│   │   └── lark_notifier.py # Lark notification tool
 │   └── requirements.txt     # Python dependencies
 └── README.md
 ```
@@ -505,13 +658,14 @@ pulumi up
 
 ### 3. Lambda Function Setup
 
-The Lambda function is written in Python 3.12. Install dependencies:
+The Lambda function is written in Python 3.12 using Strands Agents SDK. Install dependencies:
 
 ```bash
 cd lambda
 pip install -r requirements.txt -t ./package
 cd package && zip -r ../function.zip . && cd ..
-zip function.zip handler.py
+zip -g function.zip handler.py agent.py
+zip -gr function.zip tools/
 ```
 
 ### 4. Configure Tag Rules
@@ -604,26 +758,55 @@ Set stack-specific configuration:
 
 ```bash
 pulumi config set aws:region us-east-1
-pulumi config set tagCompliance:bedrockModelId anthropic.claude-3-sonnet-20240229-v1:0
 pulumi config set tagCompliance:larkSecretName tag-compliance/lark-credentials
+
+# Choose ONE of the following models:
+
+# Option 1: Amazon Nova 2 Lite (Recommended - lowest cost, ~99% savings)
+pulumi config set tagCompliance:bedrockModelId amazon.nova-2-lite-v1:0
+
+# Option 2: Claude Haiku 4.5 (best balance of cost and capability)
+pulumi config set tagCompliance:bedrockModelId anthropic.claude-haiku-4-5-20251001-v1:0
+
+# Option 3: Claude Sonnet 4.5 (highest accuracy, premium pricing)
+pulumi config set tagCompliance:bedrockModelId anthropic.claude-sonnet-4-5-20250929-v1:0
 ```
 
 ### Lambda Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `BEDROCK_MODEL_ID` | Claude model to use | `anthropic.claude-3-sonnet-20240229-v1:0` |
+| `BEDROCK_MODEL_ID` | Bedrock model to use (see [Recommended Models](#recommended-models)) | `amazon.nova-2-lite-v1:0` |
 | `RULES_TABLE_NAME` | DynamoDB table name | `TagComplianceRules` |
 | `LARK_SECRET_NAME` | Secrets Manager secret name | `tag-compliance/lark-credentials` |
 | `LOG_LEVEL` | Logging verbosity | `INFO` |
 | `PYTHONPATH` | Python module path | `/var/task` |
 
+**Supported Model IDs:**
+- `amazon.nova-2-lite-v1:0` - Amazon Nova 2 Lite (recommended for cost)
+- `anthropic.claude-haiku-4-5-20251001-v1:0` - Claude Haiku 4.5 (recommended for balance)
+- `anthropic.claude-sonnet-4-5-20250929-v1:0` - Claude Sonnet 4.5 (premium)
+
 ### Lambda Runtime
 
-- **Runtime**: Python 3.12
-- **Architecture**: arm64 (Graviton2) for cost optimization
-- **Memory**: 256 MB (recommended)
-- **Timeout**: 60 seconds
+| Setting | Value | Notes |
+|---------|-------|-------|
+| **Runtime** | Python 3.12 | Based on Amazon Linux 2023 (AL2023) |
+| **Base OS** | Amazon Linux 2023 | Uses `microdnf` package manager (not `yum`) |
+| **Architecture** | arm64 (Graviton) | ~20% better price-performance vs x86_64 |
+| **Memory** | 256-512 MB | Recommended for Strands Agents |
+| **Timeout** | 60 seconds | Adjust based on model response time |
+| **Framework** | Strands Agents SDK | AWS open-source agent framework |
+
+**Why Amazon Linux 2023 + ARM64?**
+- **AL2023**: Smaller container image, improved security, latest packages
+- **ARM64 (Graviton)**: Up to 20% better price-performance compared to x86_64
+- **Python 3.12**: Latest stable Python with performance improvements
+
+```bash
+# Pulumi example for ARM64 Lambda
+pulumi config set tagCompliance:lambdaArchitecture arm64
+```
 
 ## Local Development
 
@@ -687,12 +870,20 @@ pulumi destroy
 ## Cost Considerations
 
 - **Lambda**: Pay per invocation and duration
-- **Bedrock**: Pay per token (input + output)
+- **Bedrock**: Pay per token (input + output) - see [Recommended Models](#recommended-models)
 - **DynamoDB**: On-demand pricing for reads
 - **EventBridge**: Free for first 1 million events/month
 - **Secrets Manager**: $0.40/secret/month
 
-Estimated cost for moderate usage (~1000 resources/day): $5-15/month
+### Estimated Monthly Cost by Model (~1000 resources/day)
+
+| Model | Lambda | Bedrock | Other | Total |
+|-------|--------|---------|-------|-------|
+| Amazon Nova 2 Lite | ~$0.50-1 | ~$0.05-0.20 | ~$0.50 | **~$1-2/month** |
+| Claude Haiku 4.5 | ~$0.50-1 | ~$0.50-1.50 | ~$0.50 | **~$1.50-3/month** |
+| Claude Sonnet 4.5 | ~$0.50-1 | ~$2-5 | ~$0.50 | **~$3-7/month** |
+
+**Tip**: Use **Amazon Nova 2 Lite** for maximum cost savings (up to 95% reduction on Bedrock costs).
 
 ## Security Best Practices
 
