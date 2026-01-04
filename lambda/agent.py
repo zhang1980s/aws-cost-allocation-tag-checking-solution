@@ -13,7 +13,7 @@ from strands.models.bedrock import BedrockModel
 
 from tools.dynamodb_rules import get_tag_rules
 from tools.tag_checker import check_resource_tags, get_resource_tags
-from tools.lark_notifier import send_lark_notification
+from tools.sns_notifier import send_sns_notification
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ When analyzing tag compliance, follow these steps:
 
 3. Use the check_resource_tags tool to validate the resource's tags against the rules.
 
-4. If the resource is NOT compliant, use the send_lark_notification tool to alert the team with:
+4. If the resource is NOT compliant, use the send_sns_notification tool to alert the team with:
    - Resource type and ID
    - Missing required tags
    - Invalid tag values
@@ -63,7 +63,7 @@ class TagComplianceAgent:
             get_tag_rules,
             get_resource_tags,
             check_resource_tags,
-            send_lark_notification,
+            send_sns_notification,
         ]
 
         # Initialize agent

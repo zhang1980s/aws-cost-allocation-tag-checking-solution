@@ -2,12 +2,12 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/cloudwatch"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/dynamodb"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/iam"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/lambda"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/sns"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/config"
 )
@@ -31,10 +31,6 @@ func main() {
 		if bedrockModelId == "" {
 			bedrockModelId = "amazon.nova-2-lite-v1:0"
 		}
-		larkSecretName := cfg.Get("larkSecretName")
-		if larkSecretName == "" {
-			larkSecretName = "tag-compliance/lark-credentials"
-		}
 		lambdaArchitecture := cfg.Get("lambdaArchitecture")
 		if lambdaArchitecture == "" {
 			lambdaArchitecture = "arm64"
@@ -46,6 +42,19 @@ func main() {
 		lambdaTimeout := cfg.GetInt("lambdaTimeout")
 		if lambdaTimeout == 0 {
 			lambdaTimeout = 60
+		}
+
+		// Create SNS topic for notifications
+		snsTopic, err := sns.NewTopic(ctx, "tag-compliance-notifications", &sns.TopicArgs{
+			Name:        pulumi.String("tag-compliance-notifications"),
+			DisplayName: pulumi.String("Tag Compliance Violations"),
+			Tags: pulumi.StringMap{
+				"Project":   pulumi.String("TagCompliance"),
+				"ManagedBy": pulumi.String("Pulumi"),
+			},
+		})
+		if err != nil {
+			return err
 		}
 
 		// Create DynamoDB table for tag rules
@@ -60,7 +69,7 @@ func main() {
 				},
 			},
 			Tags: pulumi.StringMap{
-				"Project": pulumi.String("TagCompliance"),
+				"Project":   pulumi.String("TagCompliance"),
 				"ManagedBy": pulumi.String("Pulumi"),
 			},
 		})
@@ -73,7 +82,7 @@ func main() {
 			Name:            pulumi.String("/aws/lambda/tag-compliance-checker"),
 			RetentionInDays: pulumi.Int(14),
 			Tags: pulumi.StringMap{
-				"Project": pulumi.String("TagCompliance"),
+				"Project":   pulumi.String("TagCompliance"),
 				"ManagedBy": pulumi.String("Pulumi"),
 			},
 		})
@@ -82,13 +91,13 @@ func main() {
 		}
 
 		// Create IAM role for Lambda
-		assumeRolePolicy, _ := json.Marshal(map[string]interface{}{
+		assumeRolePolicy, _ := json.Marshal(map[string]any{
 			"Version": "2012-10-17",
-			"Statement": []map[string]interface{}{
+			"Statement": []map[string]any{
 				{
 					"Action": "sts:AssumeRole",
 					"Effect": "Allow",
-					"Principal": map[string]interface{}{
+					"Principal": map[string]any{
 						"Service": "lambda.amazonaws.com",
 					},
 				},
@@ -99,7 +108,7 @@ func main() {
 			Name:             pulumi.String("tag-compliance-lambda-role"),
 			AssumeRolePolicy: pulumi.String(string(assumeRolePolicy)),
 			Tags: pulumi.StringMap{
-				"Project": pulumi.String("TagCompliance"),
+				"Project":   pulumi.String("TagCompliance"),
 				"ManagedBy": pulumi.String("Pulumi"),
 			},
 		})
@@ -116,12 +125,13 @@ func main() {
 			return err
 		}
 
-		// Custom policy for Bedrock, DynamoDB, Secrets Manager, and resource tag operations
-		customPolicy := pulumi.All(rulesTable.Arn).ApplyT(func(args []interface{}) (string, error) {
+		// Custom policy for Bedrock, DynamoDB, SNS, and resource tag operations
+		customPolicy := pulumi.All(rulesTable.Arn, snsTopic.Arn).ApplyT(func(args []any) (string, error) {
 			tableArn := args[0].(string)
-			policy, _ := json.Marshal(map[string]interface{}{
+			topicArn := args[1].(string)
+			policy, _ := json.Marshal(map[string]any{
 				"Version": "2012-10-17",
-				"Statement": []map[string]interface{}{
+				"Statement": []map[string]any{
 					{
 						"Sid":    "BedrockInvoke",
 						"Effect": "Allow",
@@ -142,12 +152,12 @@ func main() {
 						"Resource": tableArn,
 					},
 					{
-						"Sid":    "SecretsManagerRead",
+						"Sid":    "SNSPublish",
 						"Effect": "Allow",
 						"Action": []string{
-							"secretsmanager:GetSecretValue",
+							"sns:Publish",
 						},
-						"Resource": fmt.Sprintf("arn:aws:secretsmanager:%s:*:secret:%s*", region, larkSecretName),
+						"Resource": topicArn,
 					},
 					{
 						"Sid":    "ResourceTagging",
@@ -185,27 +195,27 @@ func main() {
 
 		// Create Lambda function
 		lambdaFunc, err := lambda.NewFunction(ctx, "tag-compliance-checker", &lambda.FunctionArgs{
-			Name:         pulumi.String("tag-compliance-checker"),
-			Runtime:      pulumi.String("python3.12"),
-			Handler:      pulumi.String("handler.lambda_handler"),
-			Role:         lambdaRole.Arn,
-			MemorySize:   pulumi.Int(lambdaMemory),
-			Timeout:      pulumi.Int(lambdaTimeout),
+			Name:       pulumi.String("tag-compliance-checker"),
+			Runtime:    pulumi.String("python3.12"),
+			Handler:    pulumi.String("handler.lambda_handler"),
+			Role:       lambdaRole.Arn,
+			MemorySize: pulumi.Int(lambdaMemory),
+			Timeout:    pulumi.Int(lambdaTimeout),
 			Architectures: pulumi.StringArray{
 				pulumi.String(lambdaArchitecture),
 			},
 			Code: pulumi.NewFileArchive("../lambda/function.zip"),
 			Environment: &lambda.FunctionEnvironmentArgs{
 				Variables: pulumi.StringMap{
-					"BEDROCK_MODEL_ID":  pulumi.String(bedrockModelId),
-					"RULES_TABLE_NAME":  rulesTable.Name,
-					"LARK_SECRET_NAME":  pulumi.String(larkSecretName),
-					"LOG_LEVEL":         pulumi.String("INFO"),
-					"PYTHONPATH":        pulumi.String("/var/task"),
+					"BEDROCK_MODEL_ID": pulumi.String(bedrockModelId),
+					"RULES_TABLE_NAME": rulesTable.Name,
+					"SNS_TOPIC_ARN":    snsTopic.Arn,
+					"LOG_LEVEL":        pulumi.String("INFO"),
+					"PYTHONPATH":       pulumi.String("/var/task"),
 				},
 			},
 			Tags: pulumi.StringMap{
-				"Project": pulumi.String("TagCompliance"),
+				"Project":   pulumi.String("TagCompliance"),
 				"ManagedBy": pulumi.String("Pulumi"),
 			},
 		}, pulumi.DependsOn([]pulumi.Resource{logGroup}))
@@ -214,10 +224,10 @@ func main() {
 		}
 
 		// Create EventBridge rule for resource creation events
-		eventPattern, _ := json.Marshal(map[string]interface{}{
+		eventPattern, _ := json.Marshal(map[string]any{
 			"source":      []string{"aws.ec2", "aws.s3", "aws.rds", "aws.lambda", "aws.elasticloadbalancing", "aws.autoscaling"},
 			"detail-type": []string{"AWS API Call via CloudTrail"},
-			"detail": map[string]interface{}{
+			"detail": map[string]any{
 				"eventSource": []string{
 					"ec2.amazonaws.com",
 					"s3.amazonaws.com",
@@ -226,7 +236,7 @@ func main() {
 					"elasticloadbalancing.amazonaws.com",
 					"autoscaling.amazonaws.com",
 				},
-				"eventName": []interface{}{
+				"eventName": []any{
 					map[string]string{"prefix": "Create"},
 					map[string]string{"prefix": "Run"},
 					map[string]string{"prefix": "Put"},
@@ -240,7 +250,7 @@ func main() {
 			Description:  pulumi.String("Capture AWS resource creation events for tag compliance checking"),
 			EventPattern: pulumi.String(string(eventPattern)),
 			Tags: pulumi.StringMap{
-				"Project": pulumi.String("TagCompliance"),
+				"Project":   pulumi.String("TagCompliance"),
 				"ManagedBy": pulumi.String("Pulumi"),
 			},
 		})
@@ -250,10 +260,10 @@ func main() {
 
 		// Grant EventBridge permission to invoke Lambda
 		_, err = lambda.NewPermission(ctx, "eventbridge-invoke-lambda", &lambda.PermissionArgs{
-			Action:       pulumi.String("lambda:InvokeFunction"),
-			Function:     lambdaFunc.Name,
-			Principal:    pulumi.String("events.amazonaws.com"),
-			SourceArn:    eventRule.Arn,
+			Action:    pulumi.String("lambda:InvokeFunction"),
+			Function:  lambdaFunc.Name,
+			Principal: pulumi.String("events.amazonaws.com"),
+			SourceArn: eventRule.Arn,
 		})
 		if err != nil {
 			return err
@@ -275,6 +285,8 @@ func main() {
 		ctx.Export("lambdaFunctionArn", lambdaFunc.Arn)
 		ctx.Export("dynamoDBTableName", rulesTable.Name)
 		ctx.Export("dynamoDBTableArn", rulesTable.Arn)
+		ctx.Export("snsTopicName", snsTopic.Name)
+		ctx.Export("snsTopicArn", snsTopic.Arn)
 		ctx.Export("eventRuleName", eventRule.Name)
 		ctx.Export("eventRuleArn", eventRule.Arn)
 		ctx.Export("logGroupName", logGroup.Name)

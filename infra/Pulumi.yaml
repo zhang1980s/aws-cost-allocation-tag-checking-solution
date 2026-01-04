@@ -10,9 +10,6 @@ config:
   tagCompliance:bedrockModelId:
     description: Bedrock model ID to use
     default: amazon.nova-2-lite-v1:0
-  tagCompliance:larkSecretName:
-    description: Secrets Manager secret name for Lark credentials
-    default: tag-compliance/lark-credentials
   tagCompliance:lambdaArchitecture:
     description: Lambda architecture (arm64 or x86_64)
     default: arm64
