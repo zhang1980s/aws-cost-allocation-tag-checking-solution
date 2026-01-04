@@ -16,7 +16,7 @@ This solution provides automated, real-time tag compliance checking with intelli
 
 ```
 ┌──────────────┐    ┌───────────────┐    ┌─────────────────────────┐    ┌──────────────────┐
-│  CloudTrail  │───>│  EventBridge  │───>│  Lambda (Strands Agent) │───>│ Lark Notification│
+│  CloudTrail  │───>│  EventBridge  │───>│  Lambda (Strands Agent) │───>│    SNS Topic     │
 │   (Events)   │    │    (Rules)    │    │  + Amazon Bedrock       │    │    (Alerts)      │
 └──────────────┘    └───────────────┘    └───────────┬─────────────┘    └──────────────────┘
                                                      │
@@ -35,10 +35,11 @@ This solution provides automated, real-time tag compliance checking with intelli
    - Analyze the created resource's tags using AI-powered reasoning
    - Determine compliance status
    - Generate human-readable compliance reports
-4. **Notification**: Non-compliant resources trigger Lark/Feishu notifications with:
+4. **Notification**: Non-compliant resources trigger SNS notifications with:
    - Resource details (ID, type, region)
    - Missing or invalid tags
    - Remediation guidance
+   - Subscribers can receive alerts via Email, SMS, Slack, or other integrations
 
 ## Features
 
@@ -46,7 +47,7 @@ This solution provides automated, real-time tag compliance checking with intelli
 - **AI-Powered Analysis**: Amazon Bedrock models provide intelligent tag validation and recommendations
 - **Flexible Rules**: Define custom tag requirements per resource type
 - **Multi-Resource Support**: Monitor EC2, S3, RDS, Lambda, and more
-- **Lark/Feishu Integration**: Native notification support for enterprise communication
+- **SNS Integration**: Flexible notification delivery via Email, SMS, Slack, Lambda, or any SNS-compatible endpoint
 - **Model Flexibility**: Support for multiple Bedrock models (Claude, Nova)
 
 ## Recommended Models
@@ -120,7 +121,7 @@ This solution can be implemented using several different approaches. The current
 ### Current: Lambda + Strands Agents SDK (AWS Open Source)
 
 ```
-EventBridge -> Lambda (Python) -> Strands Agent -> Bedrock API -> Lark Notification
+EventBridge -> Lambda (Python) -> Strands Agent -> Bedrock API -> SNS Topic
                                        |
                                        v
                                  DynamoDB (Tag Rules)
@@ -172,7 +173,7 @@ pip install strands-agents strands-agents-tools
 ### Option 1: Lambda + Bedrock InvokeModel API (Direct Calls)
 
 ```
-EventBridge -> Lambda (Python) -> Bedrock InvokeModel API -> Lark Notification
+EventBridge -> Lambda (Python) -> Bedrock InvokeModel API -> SNS Topic
                     |
                     v
               DynamoDB (Tag Rules)
@@ -210,7 +211,7 @@ EventBridge -> Lambda (Python) -> Bedrock InvokeModel API -> Lark Notification
 ### Option 2: Amazon Bedrock Agents
 
 ```
-EventBridge -> Lambda (Trigger) -> Bedrock Agent -> Action Group (Lambda) -> Lark Notification
+EventBridge -> Lambda (Trigger) -> Bedrock Agent -> Action Group (Lambda) -> SNS Topic
                                         |
                                         v
                                   DynamoDB (Tag Rules)
@@ -259,7 +260,7 @@ EventBridge -> Lambda (Trigger) -> Bedrock Agent -> Action Group (Lambda) -> Lar
 ### Option 3: Amazon Bedrock AgentCore (Preview)
 
 ```
-EventBridge -> AgentCore Runtime (Agent) -> AgentCore Gateway (Tools) -> Lark Notification
+EventBridge -> AgentCore Runtime (Agent) -> AgentCore Gateway (Tools) -> SNS Topic
                       |                            |
                       v                            v
               AgentCore Memory              DynamoDB (Tag Rules)
@@ -315,7 +316,7 @@ EventBridge -> AgentCore Runtime (Agent) -> AgentCore Gateway (Tools) -> Lark No
 ### Option 4: Claude Agent SDK
 
 ```
-EventBridge -> Lambda (Container) -> Claude Agent SDK -> Bedrock API -> Lark Notification
+EventBridge -> Lambda (Container) -> Claude Agent SDK -> Bedrock API -> SNS Topic
                                           |
                                           v
                                     DynamoDB (Tag Rules)
@@ -367,7 +368,7 @@ EventBridge -> Lambda (Container) -> Claude Agent SDK -> Bedrock API -> Lark Not
 ### Option 5: Lambda + Claude Code (Interactive Mode)
 
 ```
-EventBridge -> Lambda (Container) -> Claude Code (Bedrock) -> Lark Notification
+EventBridge -> Lambda (Container) -> Claude Code (Bedrock) -> SNS Topic
                                           |
                                           v
                                     DynamoDB (Tag Rules)
@@ -410,7 +411,7 @@ EventBridge -> Lambda (Container) -> Claude Code (Bedrock) -> Lark Notification
 ### Option 6: LangGraph + Amazon Bedrock
 
 ```
-EventBridge -> Lambda (Python) -> LangGraph Agent -> Bedrock API -> Lark Notification
+EventBridge -> Lambda (Python) -> LangGraph Agent -> Bedrock API -> SNS Topic
                                        |
                                        v
                                  DynamoDB (Tag Rules)
@@ -560,7 +561,6 @@ For the **Tag Compliance Checking Solution**, we chose **Strands Agents SDK** as
 ## Prerequisites
 
 - AWS Account with Bedrock access (Claude models enabled in us-east-1)
-- Lark/Feishu App credentials (Bot with messaging permissions)
 - Go 1.24+ (for Pulumi infrastructure code)
 - Pulumi CLI v3.x
 - Python 3.12 (for Lambda function code)
@@ -571,7 +571,7 @@ The deployment requires permissions to create:
 - Lambda functions and execution roles
 - EventBridge rules
 - DynamoDB tables
-- Secrets Manager secrets
+- SNS topics and subscriptions
 - CloudWatch Logs
 - Bedrock model invocation
 
@@ -594,7 +594,6 @@ require (
 strands-agents>=0.1.0
 strands-agents-tools>=0.1.0
 boto3>=1.34.0
-requests>=2.31.0
 ```
 
 ## Project Structure
@@ -613,35 +612,14 @@ requests>=2.31.0
 │   │   ├── __init__.py
 │   │   ├── tag_checker.py   # Tag compliance checking tool
 │   │   ├── dynamodb_rules.py # DynamoDB rules fetcher tool
-│   │   └── lark_notifier.py # Lark notification tool
+│   │   └── sns_notifier.py  # SNS notification tool
 │   └── requirements.txt     # Python dependencies
 └── README.md
 ```
 
 ## Deployment
 
-### 1. Store Lark Credentials
-
-Create a Lark/Feishu bot and store its credentials in AWS Secrets Manager:
-
-```bash
-aws secretsmanager create-secret \
-  --name tag-compliance/lark-credentials \
-  --secret-string '{
-    "appId": "YOUR_APP_ID",
-    "appSecret": "YOUR_APP_SECRET",
-    "chatId": "YOUR_CHAT_ID"
-  }'
-```
-
-**Getting Lark Credentials:**
-1. Go to [Lark Open Platform](https://open.larksuite.com/) or [Feishu Open Platform](https://open.feishu.cn/)
-2. Create a new application
-3. Enable Bot capabilities
-4. Get the App ID and App Secret
-5. Add the bot to a group chat and get the Chat ID
-
-### 2. Deploy with Pulumi
+### 1. Deploy with Pulumi
 
 ```bash
 cd infra
@@ -656,9 +634,37 @@ pulumi up
 - **Local file**: `pulumi login --local`
 - **S3 bucket**: `pulumi login s3://<bucket-name>`
 
+### 2. Subscribe to SNS Topic
+
+After deployment, subscribe to the SNS topic to receive notifications:
+
+```bash
+# Get the SNS topic ARN from Pulumi outputs
+pulumi stack output snsTopicArn
+
+# Subscribe via email
+aws sns subscribe \
+  --topic-arn <SNS_TOPIC_ARN> \
+  --protocol email \
+  --notification-endpoint your-email@example.com
+
+# Or subscribe via HTTPS endpoint (for Slack, webhooks, etc.)
+aws sns subscribe \
+  --topic-arn <SNS_TOPIC_ARN> \
+  --protocol https \
+  --notification-endpoint https://your-webhook-url.com
+```
+
+**Supported Subscription Protocols:**
+- **Email**: Direct email notifications
+- **SMS**: Text message alerts
+- **HTTPS**: Webhook endpoints (Slack, Teams, PagerDuty, etc.)
+- **Lambda**: Trigger another Lambda for custom processing
+- **SQS**: Queue messages for async processing
+
 ### 3. Lambda Function Setup
 
-The Lambda function is written in Python 3.12 using Strands Agents SDK. Install dependencies:
+The Lambda function is written in Python 3.12 using Strands Agents SDK. Package for deployment:
 
 ```bash
 cd lambda
@@ -728,7 +734,7 @@ aws ec2 run-instances \
   --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=test-instance}]'
 ```
 
-This should trigger a Lark notification because the "site" tag is missing.
+This should trigger an SNS notification because the "site" tag is missing.
 
 ### Create a Compliant Resource
 
@@ -758,7 +764,6 @@ Set stack-specific configuration:
 
 ```bash
 pulumi config set aws:region us-east-1
-pulumi config set tagCompliance:larkSecretName tag-compliance/lark-credentials
 
 # Choose ONE of the following models:
 
@@ -778,7 +783,7 @@ pulumi config set tagCompliance:bedrockModelId anthropic.claude-sonnet-4-5-20250
 |----------|-------------|---------|
 | `BEDROCK_MODEL_ID` | Bedrock model to use (see [Recommended Models](#recommended-models)) | `amazon.nova-2-lite-v1:0` |
 | `RULES_TABLE_NAME` | DynamoDB table name | `TagComplianceRules` |
-| `LARK_SECRET_NAME` | Secrets Manager secret name | `tag-compliance/lark-credentials` |
+| `SNS_TOPIC_ARN` | SNS topic ARN for notifications | (created by Pulumi) |
 | `LOG_LEVEL` | Logging verbosity | `INFO` |
 | `PYTHONPATH` | Python module path | `/var/task` |
 
@@ -847,8 +852,8 @@ pulumi destroy
 
 1. Check CloudWatch Logs for the Lambda function
 2. Verify EventBridge rule is enabled
-3. Confirm Lark bot has messaging permissions
-4. Ensure the bot is added to the target chat
+3. Confirm SNS subscription is confirmed (check email for confirmation link)
+4. Verify Lambda has permission to publish to SNS topic
 
 ### Lambda Timeout
 
@@ -873,7 +878,7 @@ pulumi destroy
 - **Bedrock**: Pay per token (input + output) - see [Recommended Models](#recommended-models)
 - **DynamoDB**: On-demand pricing for reads
 - **EventBridge**: Free for first 1 million events/month
-- **Secrets Manager**: $0.40/secret/month
+- **SNS**: $0.50 per 1 million requests + delivery charges (email: $0, SMS: varies by country)
 
 ### Estimated Monthly Cost by Model (~1000 resources/day)
 
@@ -890,7 +895,7 @@ pulumi destroy
 1. Use least-privilege IAM policies
 2. Enable VPC endpoints for Bedrock and DynamoDB (optional)
 3. Encrypt DynamoDB table at rest
-4. Rotate Lark credentials regularly
+4. Enable SNS encryption at rest with KMS
 5. Enable CloudTrail logging for audit
 
 ## License

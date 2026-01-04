@@ -16,6 +16,17 @@ func main() {
 	pulumi.Run(func(ctx *pulumi.Context) error {
 		// Get configuration
 		cfg := config.New(ctx, "tagCompliance")
+
+		// Region configuration - can be set via tagCompliance:region or aws:region
+		region := cfg.Get("region")
+		if region == "" {
+			awsCfg := config.New(ctx, "aws")
+			region = awsCfg.Get("region")
+		}
+		if region == "" {
+			region = "us-east-1"
+		}
+
 		bedrockModelId := cfg.Get("bedrockModelId")
 		if bedrockModelId == "" {
 			bedrockModelId = "amazon.nova-2-lite-v1:0"
@@ -35,12 +46,6 @@ func main() {
 		lambdaTimeout := cfg.GetInt("lambdaTimeout")
 		if lambdaTimeout == 0 {
 			lambdaTimeout = 60
-		}
-
-		awsCfg := config.New(ctx, "aws")
-		region := awsCfg.Get("region")
-		if region == "" {
-			region = "us-east-1"
 		}
 
 		// Create DynamoDB table for tag rules
@@ -265,6 +270,7 @@ func main() {
 		}
 
 		// Export outputs
+		ctx.Export("region", pulumi.String(region))
 		ctx.Export("lambdaFunctionName", lambdaFunc.Name)
 		ctx.Export("lambdaFunctionArn", lambdaFunc.Arn)
 		ctx.Export("dynamoDBTableName", rulesTable.Name)
@@ -272,6 +278,7 @@ func main() {
 		ctx.Export("eventRuleName", eventRule.Name)
 		ctx.Export("eventRuleArn", eventRule.Arn)
 		ctx.Export("logGroupName", logGroup.Name)
+		ctx.Export("bedrockModelId", pulumi.String(bedrockModelId))
 
 		return nil
 	})

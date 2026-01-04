@@ -9,7 +9,7 @@ AWS Tag Compliance Checking Solution - An event-driven serverless application th
 ## Architecture
 
 ```
-CloudTrail → EventBridge → Lambda (Strands Agent + Bedrock) → Lark Notification
+CloudTrail → EventBridge → Lambda (Strands Agent + Bedrock) → SNS Topic
                                     ↓
                               DynamoDB (Tag Rules)
 ```
@@ -21,7 +21,7 @@ CloudTrail → EventBridge → Lambda (Strands Agent + Bedrock) → Lark Notific
 - **Agent Framework**: Strands Agents SDK
 - **LLM Provider**: Amazon Bedrock (Nova 2 Lite, Claude Haiku 4.5, Claude Sonnet 4.5)
 - **Storage**: DynamoDB (tag rules)
-- **Notifications**: Lark/Feishu Bot API
+- **Notifications**: Amazon SNS (supports Email, SMS, Slack, webhooks)
 
 ## Common Commands
 
@@ -66,7 +66,7 @@ lambda/             # Lambda function (Python 3.12)
   tools/            # Custom agent tools
     tag_checker.py
     dynamodb_rules.py
-    lark_notifier.py
+    sns_notifier.py
 ```
 
 ## Key Configuration
@@ -83,14 +83,13 @@ lambda/             # Lambda function (Python 3.12)
 
 - `BEDROCK_MODEL_ID` - Model to use (default: `amazon.nova-2-lite-v1:0`)
 - `RULES_TABLE_NAME` - DynamoDB table (default: `TagComplianceRules`)
-- `LARK_SECRET_NAME` - Secrets Manager secret for Lark credentials
+- `SNS_TOPIC_ARN` - SNS topic ARN for notifications
 
 ### Pulumi Config Keys
 
 ```bash
 pulumi config set aws:region us-east-1
 pulumi config set tagCompliance:bedrockModelId amazon.nova-2-lite-v1:0
-pulumi config set tagCompliance:larkSecretName tag-compliance/lark-credentials
 pulumi config set tagCompliance:lambdaArchitecture arm64
 ```
 

@@ -3,8 +3,10 @@ runtime: go
 description: AWS Tag Compliance Checking Solution using Strands Agents SDK
 config:
   aws:region:
-    description: AWS region for deployment
+    description: AWS region for deployment (alternative to tagCompliance:region)
     default: us-east-1
+  tagCompliance:region:
+    description: AWS region for deployment (overrides aws:region if set)
   tagCompliance:bedrockModelId:
     description: Bedrock model ID to use
     default: amazon.nova-2-lite-v1:0
