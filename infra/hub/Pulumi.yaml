@@ -1,0 +1,24 @@
+name: tag-compliance-hub
+runtime: go
+description: AWS Tag Compliance Hub - Central processing account with Lambda, DynamoDB, SNS
+config:
+  aws:region:
+    description: AWS region for hub deployment
+    default: us-east-1
+  # Spoke account configuration
+  hub:spokeAccountIds:
+    description: Comma-separated list of spoke account IDs allowed to send events
+  # Model configuration
+  hub:bedrockModelId:
+    description: Bedrock model ID to use
+    default: amazon.nova-2-lite-v1:0
+  # Lambda configuration
+  hub:lambdaArchitecture:
+    description: Lambda architecture (arm64 or x86_64)
+    default: arm64
+  hub:lambdaMemory:
+    description: Lambda memory in MB
+    default: "512"
+  hub:lambdaTimeout:
+    description: Lambda timeout in seconds
+    default: "60"

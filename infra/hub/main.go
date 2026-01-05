@@ -2,12 +2,16 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"strings"
 
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/cloudwatch"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/dynamodb"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/iam"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/lambda"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/sns"
+	"github.com/pulumi/pulumi-command/sdk/go/command/local"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/config"
 )
@@ -15,18 +19,24 @@ import (
 func main() {
 	pulumi.Run(func(ctx *pulumi.Context) error {
 		// Get configuration
-		cfg := config.New(ctx, "tagCompliance")
+		cfg := config.New(ctx, "hub")
+		awsCfg := config.New(ctx, "aws")
 
-		// Region configuration - can be set via tagCompliance:region or aws:region
-		region := cfg.Get("region")
-		if region == "" {
-			awsCfg := config.New(ctx, "aws")
-			region = awsCfg.Get("region")
-		}
+		// Region configuration
+		region := awsCfg.Get("region")
 		if region == "" {
 			region = "us-east-1"
 		}
 
+		// Get current account ID
+		callerIdentity, err := aws.GetCallerIdentity(ctx, &aws.GetCallerIdentityArgs{})
+		if err != nil {
+			return err
+		}
+		currentAccountId := callerIdentity.AccountId
+
+		// Configuration
+		spokeAccountIds := cfg.Get("spokeAccountIds")
 		bedrockModelId := cfg.Get("bedrockModelId")
 		if bedrockModelId == "" {
 			bedrockModelId = "amazon.nova-2-lite-v1:0"
@@ -42,6 +52,106 @@ func main() {
 		lambdaTimeout := cfg.GetInt("lambdaTimeout")
 		if lambdaTimeout == 0 {
 			lambdaTimeout = 60
+		}
+
+		// Build Lambda package automatically
+		// Determine platform based on architecture
+		// Using manylinux_2_28 for Amazon Linux 2023 (glibc 2.34) compatibility
+		platform := "manylinux_2_28_aarch64"
+		if lambdaArchitecture == "x86_64" {
+			platform = "manylinux_2_28_x86_64"
+		}
+
+		buildScript := fmt.Sprintf(`#!/bin/bash
+set -e
+cd ../../lambda
+
+# Create and activate virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Clean previous build
+rm -rf package function.zip
+
+# Install dependencies for Lambda architecture
+pip install \
+  --platform %s \
+  --target ./package \
+  --implementation cp \
+  --python-version 3.12 \
+  --only-binary=:all: \
+  strands-agents strands-agents-tools requests typing-extensions
+
+# Create deployment zip
+cd package && zip -rq ../function.zip . && cd ..
+zip -gq function.zip handler.py agent.py
+zip -grq function.zip tools/
+
+echo "Lambda package built: $(ls -lh function.zip | awk '{print $5}')"
+`, platform)
+
+		buildLambda, err := local.NewCommand(ctx, "build-lambda", &local.CommandArgs{
+			Create: pulumi.String(buildScript),
+			Triggers: pulumi.Array{
+				// Rebuild when source files change
+				pulumi.String("../../lambda/handler.py"),
+				pulumi.String("../../lambda/agent.py"),
+				pulumi.String("../../lambda/requirements.txt"),
+				pulumi.String("../../lambda/tools/"),
+			},
+		})
+		if err != nil {
+			return err
+		}
+
+		// Create custom EventBridge bus for receiving events from spoke accounts
+		eventBus, err := cloudwatch.NewEventBus(ctx, "tag-compliance-event-bus", &cloudwatch.EventBusArgs{
+			Name: pulumi.String("tag-compliance-events"),
+			Tags: pulumi.StringMap{
+				"Project":   pulumi.String("TagCompliance"),
+				"ManagedBy": pulumi.String("Pulumi"),
+				"Component": pulumi.String("hub"),
+			},
+		})
+		if err != nil {
+			return err
+		}
+
+		// Create resource-based policy to allow spoke accounts to send events
+		if spokeAccountIds != "" {
+			spokeAccounts := strings.Split(spokeAccountIds, ",")
+			var principals []string
+			for _, accountId := range spokeAccounts {
+				accountId = strings.TrimSpace(accountId)
+				if accountId != "" {
+					principals = append(principals, fmt.Sprintf("arn:aws:iam::%s:root", accountId))
+				}
+			}
+
+			if len(principals) > 0 {
+				busPolicy, _ := json.Marshal(map[string]any{
+					"Version": "2012-10-17",
+					"Statement": []map[string]any{
+						{
+							"Sid":    "AllowSpokeAccountsPutEvents",
+							"Effect": "Allow",
+							"Principal": map[string]any{
+								"AWS": principals,
+							},
+							"Action":   "events:PutEvents",
+							"Resource": fmt.Sprintf("arn:aws:events:%s:%s:event-bus/tag-compliance-events", region, currentAccountId),
+						},
+					},
+				})
+
+				_, err = cloudwatch.NewEventBusPolicy(ctx, "tag-compliance-bus-policy", &cloudwatch.EventBusPolicyArgs{
+					EventBusName: eventBus.Name,
+					Policy:       pulumi.String(string(busPolicy)),
+				})
+				if err != nil {
+					return err
+				}
+			}
 		}
 
 		// Create SNS topic for notifications
@@ -204,7 +314,7 @@ func main() {
 			Architectures: pulumi.StringArray{
 				pulumi.String(lambdaArchitecture),
 			},
-			Code: pulumi.NewFileArchive("../lambda/function.zip"),
+			Code: pulumi.NewFileArchive("../../lambda/function.zip"),
 			Environment: &lambda.FunctionEnvironmentArgs{
 				Variables: pulumi.StringMap{
 					"BEDROCK_MODEL_ID": pulumi.String(bedrockModelId),
@@ -218,12 +328,12 @@ func main() {
 				"Project":   pulumi.String("TagCompliance"),
 				"ManagedBy": pulumi.String("Pulumi"),
 			},
-		}, pulumi.DependsOn([]pulumi.Resource{logGroup}))
+		}, pulumi.DependsOn([]pulumi.Resource{logGroup, buildLambda}))
 		if err != nil {
 			return err
 		}
 
-		// Create EventBridge rule for resource creation events
+		// Create EventBridge rule on custom bus for resource creation events
 		eventPattern, _ := json.Marshal(map[string]any{
 			"source":      []string{"aws.ec2", "aws.s3", "aws.rds", "aws.lambda", "aws.elasticloadbalancing", "aws.autoscaling"},
 			"detail-type": []string{"AWS API Call via CloudTrail"},
@@ -245,8 +355,10 @@ func main() {
 			},
 		})
 
+		// Rule on custom event bus (receives events from spoke accounts)
 		eventRule, err := cloudwatch.NewEventRule(ctx, "tag-compliance-rule", &cloudwatch.EventRuleArgs{
 			Name:         pulumi.String("tag-compliance-resource-creation"),
+			EventBusName: eventBus.Name,
 			Description:  pulumi.String("Capture AWS resource creation events for tag compliance checking"),
 			EventPattern: pulumi.String(string(eventPattern)),
 			Tags: pulumi.StringMap{
@@ -269,18 +381,22 @@ func main() {
 			return err
 		}
 
-		// Create EventBridge target
+		// Create EventBridge target on custom bus
 		_, err = cloudwatch.NewEventTarget(ctx, "tag-compliance-target", &cloudwatch.EventTargetArgs{
-			Rule:     eventRule.Name,
-			TargetId: pulumi.String("tag-compliance-lambda"),
-			Arn:      lambdaFunc.Arn,
+			Rule:         eventRule.Name,
+			EventBusName: eventBus.Name,
+			TargetId:     pulumi.String("tag-compliance-lambda"),
+			Arn:          lambdaFunc.Arn,
 		})
 		if err != nil {
 			return err
 		}
 
-		// Export outputs
+		// Export hub outputs
 		ctx.Export("region", pulumi.String(region))
+		ctx.Export("accountId", pulumi.String(currentAccountId))
+		ctx.Export("eventBusName", eventBus.Name)
+		ctx.Export("eventBusArn", eventBus.Arn)
 		ctx.Export("lambdaFunctionName", lambdaFunc.Name)
 		ctx.Export("lambdaFunctionArn", lambdaFunc.Arn)
 		ctx.Export("dynamoDBTableName", rulesTable.Name)

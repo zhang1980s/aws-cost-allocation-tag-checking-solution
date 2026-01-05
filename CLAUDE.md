@@ -8,10 +8,24 @@ AWS Tag Compliance Checking Solution - An event-driven serverless application th
 
 ## Architecture
 
+Supports **multi-account/multi-region** deployments using hub-and-spoke pattern.
+
+### Single Account (Hub Mode)
 ```
-CloudTrail → EventBridge → Lambda (Strands Agent + Bedrock) → SNS Topic
-                                    ↓
-                              DynamoDB (Tag Rules)
+CloudTrail → EventBridge (Custom Bus) → Lambda (Strands Agent + Bedrock) → SNS Topic
+                                              ↓
+                                        DynamoDB (Tag Rules)
+```
+
+### Multi-Account (Hub-and-Spoke)
+```
+Spoke Accounts (any region):
+  CloudTrail → EventBridge → Forward to Hub
+                    ↓
+Hub Account:
+  EventBridge (Custom Bus) → Lambda → SNS Topic
+                               ↓
+                         DynamoDB (Tag Rules)
 ```
 
 ## Tech Stack
@@ -28,12 +42,21 @@ CloudTrail → EventBridge → Lambda (Strands Agent + Bedrock) → SNS Topic
 ### Infrastructure (Pulumi/Go)
 
 ```bash
-cd infra
+# Hub account (central processing)
+cd infra/hub
 go mod tidy                    # Install Go dependencies
-pulumi preview                 # Preview changes
-pulumi up                      # Deploy infrastructure
-pulumi destroy                 # Tear down infrastructure
-pulumi config set <key> <val>  # Set configuration
+pulumi stack init prod         # Create stack
+pulumi config set hub:spokeAccountIds "111111,222222"  # Optional: allow spoke accounts
+pulumi up                      # Deploy hub infrastructure
+
+# Spoke account (event forwarding)
+cd infra/spoke
+go mod tidy
+pulumi stack init <account>-<region>
+pulumi config set spoke:hubAccountId 000000000000
+pulumi config set spoke:hubRegion us-east-1
+pulumi config set spoke:hubEventBusArn arn:aws:events:us-east-1:000000000000:event-bus/tag-compliance-events
+pulumi up                      # Deploy spoke infrastructure
 ```
 
 ### Lambda (Python)
@@ -56,9 +79,13 @@ python -m pytest tests/
 ## Project Structure
 
 ```
-infra/              # Pulumi infrastructure (Go)
-  main.go           # Main Pulumi program
-  Pulumi.yaml       # Project configuration
+infra/
+  hub/              # Hub account stack (deploy once)
+    main.go         # Lambda, DynamoDB, SNS, EventBridge bus
+    Pulumi.yaml     # Hub configuration
+  spoke/            # Spoke account stack (deploy per account/region)
+    main.go         # EventBridge forwarding rule
+    Pulumi.yaml     # Spoke configuration
 
 lambda/             # Lambda function (Python 3.12)
   handler.py        # Lambda entry point
@@ -88,6 +115,18 @@ lambda/             # Lambda function (Python 3.12)
 ### Pulumi Config Keys
 
 ```bash
+# Deployment mode (hub or spoke)
+pulumi config set tagCompliance:deploymentMode hub
+
+# Hub mode - specify allowed spoke accounts
+pulumi config set tagCompliance:spokeAccountIds "111111111111,222222222222"
+
+# Spoke mode - specify hub account details
+pulumi config set tagCompliance:hubAccountId 000000000000
+pulumi config set tagCompliance:hubRegion us-east-1
+pulumi config set tagCompliance:hubEventBusArn arn:aws:events:us-east-1:000000000000:event-bus/tag-compliance-events
+
+# Common configuration
 pulumi config set aws:region us-east-1
 pulumi config set tagCompliance:bedrockModelId amazon.nova-2-lite-v1:0
 pulumi config set tagCompliance:lambdaArchitecture arm64

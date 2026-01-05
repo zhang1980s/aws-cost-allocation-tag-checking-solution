@@ -14,6 +14,10 @@ This solution provides automated, real-time tag compliance checking with intelli
 
 ## Architecture
 
+This solution supports **multi-account and multi-region** deployments using a hub-and-spoke architecture.
+
+### Single Account/Region (Simple Mode)
+
 ```
 ┌──────────────┐    ┌───────────────┐    ┌─────────────────────────┐    ┌──────────────────┐
 │  CloudTrail  │───>│  EventBridge  │───>│  Lambda (Strands Agent) │───>│    SNS Topic     │
@@ -26,20 +30,85 @@ This solution provides automated, real-time tag compliance checking with intelli
                                          └───────────────────────┘
 ```
 
+### Multi-Account/Multi-Region (Hub-and-Spoke)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                          SPOKE ACCOUNTS/REGIONS                                  │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                  │
+│   Account A, Region 1         Account B, Region 2         Account C, Region 1   │
+│   ┌──────────────┐            ┌──────────────┐            ┌──────────────┐      │
+│   │ CloudTrail   │            │ CloudTrail   │            │ CloudTrail   │      │
+│   └──────┬───────┘            └──────┬───────┘            └──────┬───────┘      │
+│          ↓                           ↓                           ↓              │
+│   ┌──────────────┐            ┌──────────────┐            ┌──────────────┐      │
+│   │ EventBridge  │            │ EventBridge  │            │ EventBridge  │      │
+│   │ (forward)    │            │ (forward)    │            │ (forward)    │      │
+│   └──────┬───────┘            └──────┬───────┘            └──────┬───────┘      │
+│          │                           │                           │              │
+└──────────┼───────────────────────────┼───────────────────────────┼──────────────┘
+           │                           │                           │
+           └───────────────────────────┼───────────────────────────┘
+                                       ↓
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                          HUB ACCOUNT (Solution Account)                          │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                  │
+│                      ┌────────────────────────────┐                              │
+│                      │  EventBridge Custom Bus    │                              │
+│                      │  (tag-compliance-events)   │                              │
+│                      └────────────┬───────────────┘                              │
+│                                   ↓                                              │
+│                      ┌────────────────────────────┐                              │
+│                      │  EventBridge Rule          │                              │
+│                      │  (Create/Modify events)    │                              │
+│                      └────────────┬───────────────┘                              │
+│                                   ↓                                              │
+│                      ┌────────────────────────────┐    ┌──────────────────┐     │
+│                      │  Lambda (Strands Agent)    │───>│    SNS Topic     │     │
+│                      │  + Amazon Bedrock          │    │    (Alerts)      │     │
+│                      └────────────┬───────────────┘    └──────────────────┘     │
+│                                   ↓                                              │
+│                      ┌────────────────────────────┐                              │
+│                      │  DynamoDB (Tag Rules)      │                              │
+│                      └────────────────────────────┘                              │
+│                                                                                  │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Key Benefits of Hub-and-Spoke:**
+- Centralized tag compliance rules in one DynamoDB table
+- Single Lambda processes events from all accounts/regions
+- Single SNS topic for all violation notifications
+- Cost efficient: pay for one Lambda, one Bedrock endpoint
+
 ### How It Works
 
+**Single Account/Region:**
 1. **Event Capture**: CloudTrail logs all AWS API calls including resource creation events
 2. **Event Filtering**: EventBridge rules filter for specific resource creation events (EC2, S3, RDS, etc.)
-3. **Compliance Check**: Lambda function uses Strands Agents SDK with Amazon Bedrock to:
-   - Fetch tag rules from DynamoDB
-   - Analyze the created resource's tags using AI-powered reasoning
-   - Determine compliance status
-   - Generate human-readable compliance reports
-4. **Notification**: Non-compliant resources trigger SNS notifications with:
-   - Resource details (ID, type, region)
-   - Missing or invalid tags
-   - Remediation guidance
-   - Subscribers can receive alerts via Email, SMS, Slack, or other integrations
+3. **Compliance Check**: Lambda function uses Strands Agents SDK with Amazon Bedrock to analyze tags
+4. **Notification**: Non-compliant resources trigger SNS notifications
+
+**Multi-Account/Multi-Region:**
+1. **Event Capture**: CloudTrail in each spoke account/region captures resource creation events
+2. **Event Forwarding**: EventBridge in spoke accounts forwards events to hub account's custom event bus
+3. **Centralized Processing**: Hub account's EventBridge rule triggers Lambda for all incoming events
+4. **Compliance Check**: Lambda analyzes tags using rules from centralized DynamoDB table
+5. **Notification**: All violations from all accounts/regions go to single SNS topic
+
+**Compliance Check Details:**
+- Fetch tag rules from DynamoDB
+- Analyze the created resource's tags using AI-powered reasoning
+- Determine compliance status
+- Generate human-readable compliance reports
+
+**Notification Details:**
+- Resource details (ID, type, region, account)
+- Missing or invalid tags
+- Remediation guidance
+- Subscribers can receive alerts via Email, SMS, Slack, or other integrations
 
 ## Features
 
@@ -47,6 +116,7 @@ This solution provides automated, real-time tag compliance checking with intelli
 - **AI-Powered Analysis**: Amazon Bedrock models provide intelligent tag validation and recommendations
 - **Flexible Rules**: Define custom tag requirements per resource type
 - **Multi-Resource Support**: Monitor EC2, S3, RDS, Lambda, and more
+- **Multi-Account/Multi-Region**: Hub-and-spoke architecture for centralized compliance across AWS accounts and regions
 - **SNS Integration**: Flexible notification delivery via Email, SMS, Slack, Lambda, or any SNS-compatible endpoint
 - **Model Flexibility**: Support for multiple Bedrock models (Claude, Nova)
 
@@ -601,10 +671,16 @@ boto3>=1.34.0
 ```
 .
 ├── infra/                    # Pulumi infrastructure (Go)
-│   ├── main.go              # Main Pulumi program
-│   ├── go.mod               # Go module definition
-│   ├── go.sum               # Go dependencies
-│   └── Pulumi.yaml          # Pulumi project configuration
+│   ├── hub/                 # Hub account stack
+│   │   ├── main.go          # Hub infrastructure (Lambda, DynamoDB, SNS, EventBridge)
+│   │   ├── go.mod           # Go module definition
+│   │   ├── go.sum           # Go dependencies
+│   │   └── Pulumi.yaml      # Hub project configuration
+│   └── spoke/               # Spoke account stack
+│       ├── main.go          # Spoke infrastructure (EventBridge forwarding)
+│       ├── go.mod           # Go module definition
+│       ├── go.sum           # Go dependencies
+│       └── Pulumi.yaml      # Spoke project configuration
 ├── lambda/                   # Lambda function (Python 3.12)
 │   ├── handler.py           # Main Lambda handler
 │   ├── agent.py             # Strands Agent definition
@@ -619,22 +695,103 @@ boto3>=1.34.0
 
 ## Deployment
 
-### 1. Deploy with Pulumi
+### Deployment Structure
+
+The infrastructure is organized into **separate Pulumi projects** for hub and spoke:
+
+```
+infra/
+├── hub/              # Hub account infrastructure (deploy once)
+│   ├── Pulumi.yaml   # Hub project configuration
+│   ├── main.go       # Lambda, DynamoDB, SNS, EventBridge bus
+│   └── go.mod
+└── spoke/            # Spoke account infrastructure (deploy per account/region)
+    ├── Pulumi.yaml   # Spoke project configuration
+    ├── main.go       # EventBridge forwarding rule only
+    └── go.mod
+```
+
+| Stack | Description | Resources |
+|-------|-------------|-----------|
+| **Hub** | Central processing account | Lambda, DynamoDB, SNS, custom EventBridge bus |
+| **Spoke** | Event forwarding accounts | EventBridge rule + IAM role |
+
+### Single Account Deployment
+
+For single account/region, deploy only the hub stack:
 
 ```bash
-cd infra
+cd infra/hub
 go mod tidy
-pulumi login  # first time only, configure Pulumi backend
-pulumi stack init dev  # create a new stack
+pulumi login
+pulumi stack init prod
 pulumi up
 ```
+
+### Multi-Account/Multi-Region Deployment
+
+#### Step 1: Deploy Hub Account
+
+Deploy the hub stack in your central account first:
+
+```bash
+cd infra/hub
+go mod tidy
+pulumi login
+pulumi stack init prod
+
+# Configure spoke account IDs that will send events
+pulumi config set hub:spokeAccountIds "111111111111,222222222222,333333333333"
+pulumi config set aws:region us-east-1
+
+# Deploy
+pulumi up
+```
+
+Note the outputs - you'll need `eventBusArn` for spoke configuration:
+```bash
+pulumi stack output eventBusArn
+# Example: arn:aws:events:us-east-1:000000000000:event-bus/tag-compliance-events
+```
+
+#### Step 2: Deploy Spoke Accounts/Regions
+
+For each spoke account/region, deploy the spoke stack:
+
+```bash
+# Switch to spoke account credentials
+export AWS_PROFILE=spoke-account-a
+
+cd infra/spoke
+go mod tidy
+pulumi login
+pulumi stack init account-a-us-west-2
+
+# Configure hub connection (required)
+pulumi config set spoke:hubAccountId 000000000000
+pulumi config set spoke:hubRegion us-east-1
+pulumi config set spoke:hubEventBusArn arn:aws:events:us-east-1:000000000000:event-bus/tag-compliance-events
+pulumi config set aws:region us-west-2
+
+# Deploy
+pulumi up
+```
+
+Repeat for each spoke account/region combination.
+
+#### Multi-Account Architecture Notes
+
+- **Hub Account**: Contains Lambda, DynamoDB, SNS, and custom EventBridge bus
+- **Spoke Accounts**: Only contain EventBridge forwarding rule and IAM role
+- **Cross-Account Permissions**: Hub bus policy allows spoke accounts to send events
+- **Cross-Region**: Events are forwarded to hub region regardless of spoke region
 
 **Pulumi Backend Options:**
 - **Pulumi Cloud** (default): `pulumi login`
 - **Local file**: `pulumi login --local`
 - **S3 bucket**: `pulumi login s3://<bucket-name>`
 
-### 2. Subscribe to SNS Topic
+### Subscribe to SNS Topic
 
 After deployment, subscribe to the SNS topic to receive notifications:
 
@@ -760,7 +917,25 @@ aws ec2 run-instances \
 
 ### Pulumi Configuration
 
-Set stack-specific configuration:
+#### Hub Stack Configuration (`infra/hub`)
+
+| Config Key | Description | Required |
+|------------|-------------|----------|
+| `hub:spokeAccountIds` | Comma-separated spoke account IDs | Optional |
+| `hub:bedrockModelId` | Bedrock model ID (default: `amazon.nova-2-lite-v1:0`) | No |
+| `hub:lambdaArchitecture` | `arm64` or `x86_64` (default: `arm64`) | No |
+| `hub:lambdaMemory` | Memory in MB (default: `512`) | No |
+| `hub:lambdaTimeout` | Timeout in seconds (default: `60`) | No |
+
+#### Spoke Stack Configuration (`infra/spoke`)
+
+| Config Key | Description | Required |
+|------------|-------------|----------|
+| `spoke:hubAccountId` | Hub account ID | **Yes** |
+| `spoke:hubRegion` | Hub region | **Yes** |
+| `spoke:hubEventBusArn` | Hub EventBridge bus ARN | **Yes** |
+
+#### Model Configuration
 
 ```bash
 pulumi config set aws:region us-east-1
@@ -821,7 +996,7 @@ pulumi config set tagCompliance:lambdaArchitecture arm64
 cd lambda
 python -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 
 # Run unit tests
 python -m pytest tests/
@@ -829,6 +1004,50 @@ python -m pytest tests/
 # Test with sample event
 python -c "from handler import lambda_handler; lambda_handler({'test': 'event'}, None)"
 ```
+
+### Package Lambda for Deployment
+
+**Automatic Build (Recommended):** The Lambda package is built automatically during `pulumi up` using the `pulumi-command` provider. No manual packaging required!
+
+The build process:
+- Installs dependencies for the correct Lambda architecture (ARM64 or x86_64)
+- Excludes `boto3`/`botocore` (already in Lambda runtime)
+- Creates `function.zip` automatically before Lambda deployment
+
+**Manual Build (Optional):** If you need to build manually for testing:
+
+```bash
+cd lambda
+
+# Activate virtual environment (create if needed)
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Clean previous build
+rm -rf package function.zip
+
+# Install dependencies (exclude boto3/botocore - already in Lambda runtime)
+# Using manylinux_2_28 for Amazon Linux 2023 compatibility
+pip install \
+  --platform manylinux_2_28_aarch64 \
+  --target ./package \
+  --implementation cp \
+  --python-version 3.12 \
+  --only-binary=:all: \
+  strands-agents strands-agents-tools requests typing-extensions
+
+# Create deployment zip
+cd package && zip -rq ../function.zip . && cd ..
+
+# Add Lambda source files
+zip -gq function.zip handler.py agent.py
+zip -grq function.zip tools/
+
+# Verify the package (should be <50MB)
+ls -lh function.zip
+```
+
+**Note:** For x86_64 architecture, replace `manylinux2014_aarch64` with `manylinux2014_x86_64`.
 
 ### Pulumi Preview
 
