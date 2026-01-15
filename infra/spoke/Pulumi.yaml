@@ -4,11 +4,14 @@ description: AWS Tag Compliance Spoke - Event forwarding to hub account
 config:
   aws:region:
     description: AWS region for spoke deployment
-    default: us-east-1
+    value: us-east-1
   # Hub account configuration (required)
   spoke:hubAccountId:
     description: Hub account ID to forward events to (required)
+    value: ""
   spoke:hubRegion:
     description: Hub region where the central event bus is located (required)
+    value: ""
   spoke:hubEventBusArn:
     description: Hub EventBridge bus ARN to forward events to (required)
+    value: ""

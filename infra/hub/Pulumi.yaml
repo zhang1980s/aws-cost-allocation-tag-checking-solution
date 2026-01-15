@@ -4,21 +4,22 @@ description: AWS Tag Compliance Hub - Central processing account with Lambda, Dy
 config:
   aws:region:
     description: AWS region for hub deployment
-    default: us-east-1
+    value: us-east-1
   # Spoke account configuration
   hub:spokeAccountIds:
     description: Comma-separated list of spoke account IDs allowed to send events
+    value: ""
   # Model configuration
   hub:bedrockModelId:
     description: Bedrock model ID to use
-    default: amazon.nova-2-lite-v1:0
+    value: amazon.nova-2-lite-v1:0
   # Lambda configuration
   hub:lambdaArchitecture:
     description: Lambda architecture (arm64 or x86_64)
-    default: arm64
+    value: arm64
   hub:lambdaMemory:
     description: Lambda memory in MB
-    default: "512"
+    value: "512"
   hub:lambdaTimeout:
     description: Lambda timeout in seconds
-    default: "60"
+    value: "60"

@@ -994,7 +994,7 @@ pulumi config set tagCompliance:lambdaArchitecture arm64
 
 ```bash
 cd lambda
-python -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
 
@@ -1020,7 +1020,7 @@ The build process:
 cd lambda
 
 # Activate virtual environment (create if needed)
-python -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
 # Clean previous build
@@ -1034,6 +1034,7 @@ pip install \
   --implementation cp \
   --python-version 3.12 \
   --only-binary=:all: \
+  --ignore-requires-python \
   strands-agents strands-agents-tools requests typing-extensions
 
 # Create deployment zip
@@ -1047,7 +1048,7 @@ zip -grq function.zip tools/
 ls -lh function.zip
 ```
 
-**Note:** For x86_64 architecture, replace `manylinux2014_aarch64` with `manylinux2014_x86_64`.
+**Note:** For x86_64 architecture, replace `manylinux_2_28_aarch64` with `manylinux_2_28_x86_64`.
 
 ### Pulumi Preview
 

@@ -1,8 +1,11 @@
 package main
 
 import (
+	"archive/zip"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws"
@@ -16,7 +19,44 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/config"
 )
 
+// ensurePlaceholderZip creates an empty placeholder zip file if it doesn't exist.
+// This allows Pulumi to evaluate FileArchive during planning before the build runs.
+func ensurePlaceholderZip(zipPath string) error {
+	// Get absolute path
+	absPath, err := filepath.Abs(zipPath)
+	if err != nil {
+		return err
+	}
+
+	// Check if file exists
+	if _, err := os.Stat(absPath); err == nil {
+		return nil // File exists, nothing to do
+	}
+
+	// Create directory if needed
+	dir := filepath.Dir(absPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	// Create empty zip file
+	file, err := os.Create(absPath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// Write minimal valid zip structure
+	zipWriter := zip.NewWriter(file)
+	return zipWriter.Close()
+}
+
 func main() {
+	// Ensure placeholder zip exists before Pulumi evaluates FileArchive
+	if err := ensurePlaceholderZip("../../lambda/function.zip"); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not create placeholder zip: %v\n", err)
+	}
+
 	pulumi.Run(func(ctx *pulumi.Context) error {
 		// Get configuration
 		cfg := config.New(ctx, "hub")
@@ -66,20 +106,22 @@ func main() {
 set -e
 cd ../../lambda
 
-# Create and activate virtual environment
-python3 -m venv .venv
+# Create and activate virtual environment using Python 3.12
+python3.12 -m venv .venv
 source .venv/bin/activate
 
 # Clean previous build
 rm -rf package function.zip
 
 # Install dependencies for Lambda architecture
+# --ignore-requires-python: local Python is 3.9 but Lambda uses 3.12
 pip install \
   --platform %s \
   --target ./package \
   --implementation cp \
   --python-version 3.12 \
   --only-binary=:all: \
+  --ignore-requires-python \
   strands-agents strands-agents-tools requests typing-extensions
 
 # Create deployment zip
